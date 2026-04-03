@@ -47,11 +47,6 @@ import {
   useDesktopUpdateState,
 } from "../../lib/desktopUpdateReactQuery";
 import {
-  serverAcpRegistryQueryOptions,
-  serverConfigQueryOptions,
-  serverQueryKeys,
-} from "../../lib/serverReactQuery";
-import {
   BuiltInProviderKind,
   MAX_CUSTOM_MODEL_LENGTH,
   getCustomModelOptionsByProvider,
@@ -80,6 +75,13 @@ import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectFavicon } from "../ProjectFavicon";
+import {
+  useServerAvailableEditors,
+  useServerConfig,
+  useServerKeybindingsConfigPath,
+  useServerObservability,
+  useServerProviders,
+} from "../../rpc/serverState";
 
 const THEME_OPTIONS = [
   {
@@ -102,7 +104,7 @@ const TIMESTAMP_FORMAT_LABELS = {
   "24-hour": "24-hour",
 } as const;
 
-const EMPTY_SERVER_PROVIDERS: ReadonlyArray<ServerProvider> = [];
+const SERVER_ACP_REGISTRY_QUERY_KEY = ["server", "acp-registry"] as const;
 
 function slugifyAcpAgentId(value: string): string {
   const normalized = value
@@ -153,7 +155,6 @@ function makeImportedAcpAgent(input: ResolvedRegistryAcpAgent): AcpAgentServer {
     launch,
   };
 }
-
 type InstallProviderSettings = {
   provider: BuiltInProviderKind;
   title: string;
@@ -599,10 +600,15 @@ export function GeneralSettingsPanel() {
   const { theme, setTheme } = useTheme();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
-  const serverConfigQuery = useQuery(serverConfigQueryOptions());
-  const acpRegistryQuery = useQuery(serverAcpRegistryQueryOptions());
-  const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
-  const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const serverConfig = useServerConfig();
+  const [openingPathByTarget, setOpeningPathByTarget] = useState({
+    keybindings: false,
+    logsDirectory: false,
+  });
+  const [openPathErrorByTarget, setOpenPathErrorByTarget] = useState<
+    Partial<Record<"keybindings" | "logsDirectory", string | null>>
+  >({});
   const [openProviderDetails, setOpenProviderDetails] = useState<
     Record<BuiltInProviderKind, boolean>
   >({
@@ -642,8 +648,12 @@ export function GeneralSettingsPanel() {
   const [manualAcpArgs, setManualAcpArgs] = useState("");
   const [manualAcpEnabled, setManualAcpEnabled] = useState(true);
   const [manualAcpError, setManualAcpError] = useState<string | null>(null);
+  const acpRegistryQuery = useQuery({
+    queryKey: SERVER_ACP_REGISTRY_QUERY_KEY,
+    queryFn: async () => ensureNativeApi().server.listAcpRegistry(),
+    enabled: acpDialogOpen && acpDialogTab === "registry",
+  });
   const refreshingRef = useRef(false);
-  const queryClient = useQueryClient();
   const modelListRefs = useRef<Partial<Record<BuiltInProviderKind, HTMLDivElement | null>>>({});
   const refreshProviders = useCallback(() => {
     if (refreshingRef.current) return;
@@ -651,7 +661,6 @@ export function GeneralSettingsPanel() {
     setIsRefreshingProviders(true);
     void ensureNativeApi()
       .server.refreshProviders()
-      .then(() => queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() }))
       .catch((error: unknown) => {
         console.warn("Failed to refresh providers", error);
       })
@@ -659,14 +668,27 @@ export function GeneralSettingsPanel() {
         refreshingRef.current = false;
         setIsRefreshingProviders(false);
       });
-  }, [queryClient]);
+  }, []);
 
-  const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
-  const availableEditors = serverConfigQuery.data?.availableEditors;
-  const serverProviders = serverConfigQuery.data?.providers ?? EMPTY_SERVER_PROVIDERS;
-  const acpAgentStatuses = serverConfigQuery.data?.acpAgentServers ?? [];
+  const keybindingsConfigPath = useServerKeybindingsConfigPath();
+  const availableEditors = useServerAvailableEditors();
+  const observability = useServerObservability();
+  const serverProviders = useServerProviders();
+  const acpAgentStatuses = serverConfig?.acpAgentServers ?? [];
   const registeredAcpAgents = settings.providers.acp.agentServers;
   const codexHomePath = settings.providers.codex.homePath;
+  const logsDirectoryPath = observability?.logsDirectoryPath ?? null;
+  const diagnosticsDescription = (() => {
+    const exports: string[] = [];
+    if (observability?.otlpTracesEnabled && observability.otlpTracesUrl) {
+      exports.push(`traces to ${observability.otlpTracesUrl}`);
+    }
+    if (observability?.otlpMetricsEnabled && observability.otlpMetricsUrl) {
+      exports.push(`metrics to ${observability.otlpMetricsUrl}`);
+    }
+    const mode = observability?.localTracingEnabled ? "Local trace file" : "Terminal logs only";
+    return exports.length > 0 ? `${mode}. OTLP exporting ${exports.join(" and ")}.` : `${mode}.`;
+  })();
   const filteredRegistryAgents = (acpRegistryQuery.data?.agents ?? []).filter((entry) => {
     const search = acpRegistrySearch.trim().toLowerCase();
     if (!search) {
@@ -698,27 +720,49 @@ export function GeneralSettingsPanel() {
     DEFAULT_UNIFIED_SETTINGS.providers.acp,
   );
 
+  const openInPreferredEditor = useCallback(
+    (target: "keybindings" | "logsDirectory", path: string | null, failureMessage: string) => {
+      if (!path) return;
+      setOpenPathErrorByTarget((existing) => ({ ...existing, [target]: null }));
+      setOpeningPathByTarget((existing) => ({ ...existing, [target]: true }));
+
+      const editor = resolveAndPersistPreferredEditor(availableEditors ?? []);
+      if (!editor) {
+        setOpenPathErrorByTarget((existing) => ({
+          ...existing,
+          [target]: "No available editors found.",
+        }));
+        setOpeningPathByTarget((existing) => ({ ...existing, [target]: false }));
+        return;
+      }
+
+      void ensureNativeApi()
+        .shell.openInEditor(path, editor)
+        .catch((error) => {
+          setOpenPathErrorByTarget((existing) => ({
+            ...existing,
+            [target]: error instanceof Error ? error.message : failureMessage,
+          }));
+        })
+        .finally(() => {
+          setOpeningPathByTarget((existing) => ({ ...existing, [target]: false }));
+        });
+    },
+    [availableEditors],
+  );
+
   const openKeybindingsFile = useCallback(() => {
-    if (!keybindingsConfigPath) return;
-    setOpenKeybindingsError(null);
-    setIsOpeningKeybindings(true);
-    const editor = resolveAndPersistPreferredEditor(availableEditors ?? []);
-    if (!editor) {
-      setOpenKeybindingsError("No available editors found.");
-      setIsOpeningKeybindings(false);
-      return;
-    }
-    void ensureNativeApi()
-      .shell.openInEditor(keybindingsConfigPath, editor)
-      .catch((error) => {
-        setOpenKeybindingsError(
-          error instanceof Error ? error.message : "Unable to open keybindings file.",
-        );
-      })
-      .finally(() => {
-        setIsOpeningKeybindings(false);
-      });
-  }, [availableEditors, keybindingsConfigPath]);
+    openInPreferredEditor("keybindings", keybindingsConfigPath, "Unable to open keybindings file.");
+  }, [keybindingsConfigPath, openInPreferredEditor]);
+
+  const openLogsDirectory = useCallback(() => {
+    openInPreferredEditor("logsDirectory", logsDirectoryPath, "Unable to open logs folder.");
+  }, [logsDirectoryPath, openInPreferredEditor]);
+
+  const openKeybindingsError = openPathErrorByTarget.keybindings ?? null;
+  const openDiagnosticsError = openPathErrorByTarget.logsDirectory ?? null;
+  const isOpeningKeybindings = openingPathByTarget.keybindings;
+  const isOpeningLogsDirectory = openingPathByTarget.logsDirectory;
 
   const addCustomModel = useCallback(
     (provider: BuiltInProviderKind) => {
@@ -832,9 +876,8 @@ export function GeneralSettingsPanel() {
           },
         },
       });
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
     },
-    [queryClient, settings.providers, updateSettings],
+    [settings.providers, updateSettings],
   );
 
   const removeAcpAgent = useCallback(
@@ -850,9 +893,8 @@ export function GeneralSettingsPanel() {
           },
         },
       });
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
     },
-    [queryClient, settings.providers, updateSettings],
+    [settings.providers, updateSettings],
   );
 
   const addManualAcpAgent = useCallback(() => {
@@ -1788,7 +1830,7 @@ export function GeneralSettingsPanel() {
                           variant="ghost"
                           onClick={() =>
                             void queryClient.invalidateQueries({
-                              queryKey: serverQueryKeys.acpRegistry(),
+                              queryKey: SERVER_ACP_REGISTRY_QUERY_KEY,
                             })
                           }
                           disabled={acpRegistryQuery.isFetching}
@@ -2060,6 +2102,30 @@ export function GeneralSettingsPanel() {
             description="Current version of the application."
           />
         )}
+        <SettingsRow
+          title="Diagnostics"
+          description={diagnosticsDescription}
+          status={
+            <>
+              <span className="block break-all font-mono text-[11px] text-foreground">
+                {logsDirectoryPath ?? "Resolving logs directory..."}
+              </span>
+              {openDiagnosticsError ? (
+                <span className="mt-1 block text-destructive">{openDiagnosticsError}</span>
+              ) : null}
+            </>
+          }
+          control={
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={!logsDirectoryPath || isOpeningLogsDirectory}
+              onClick={openLogsDirectory}
+            >
+              {isOpeningLogsDirectory ? "Opening..." : "Open logs folder"}
+            </Button>
+          }
+        />
       </SettingsSection>
     </SettingsPageContainer>
   );

@@ -104,3 +104,15 @@ export const AcpRegistryListResult = Schema.Struct({
   agents: Schema.Array(ResolvedRegistryAcpAgent),
 });
 export type AcpRegistryListResult = typeof AcpRegistryListResult.Type;
+
+export class AcpRegistryListError extends Schema.TaggedErrorClass<AcpRegistryListError>()(
+  "AcpRegistryListError",
+  {
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `ACP registry lookup failed: ${this.detail}`;
+  }
+}
