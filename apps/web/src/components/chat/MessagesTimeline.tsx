@@ -1,4 +1,4 @@
-import { type MessageId, type TurnId } from "@t3tools/contracts";
+import { type EnvironmentId, type MessageId, type TurnId } from "@t3tools/contracts";
 import {
   memo,
   useCallback,
@@ -82,6 +82,7 @@ interface MessagesTimelineProps {
   onRevertUserMessage: (messageId: MessageId) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
+  activeThreadEnvironmentId: EnvironmentId;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
@@ -117,6 +118,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onRevertUserMessage,
   isRevertingCheckpoint,
   onImageExpand,
+  activeThreadEnvironmentId,
   markdownCwd,
   resolvedTheme,
   timestampFormat,
@@ -386,7 +388,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                               <img
                                 src={image.previewUrl}
                                 alt={image.name}
-                                className="h-full max-h-[220px] w-full object-cover"
+                                className="block h-auto max-h-[220px] w-full object-cover"
                                 onLoad={onTimelineImageLoad}
                                 onError={onTimelineImageLoad}
                               />
@@ -531,6 +533,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         <div className="min-w-0 px-1 py-0.5">
           <ProposedPlanCard
             planMarkdown={row.proposedPlan.planMarkdown}
+            environmentId={activeThreadEnvironmentId}
             cwd={markdownCwd}
             workspaceRoot={workspaceRoot}
           />
@@ -793,6 +796,16 @@ function workEntryPreview(
     : `${firstPath} +${workEntry.changedFiles!.length - 1} more`;
 }
 
+function workEntryRawCommand(
+  workEntry: Pick<TimelineWorkEntry, "command" | "rawCommand">,
+): string | null {
+  const rawCommand = workEntry.rawCommand?.trim();
+  if (!rawCommand || !workEntry.command) {
+    return null;
+  }
+  return rawCommand === workEntry.command.trim() ? null : rawCommand;
+}
+
 function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   if (workEntry.requestKind === "command") return TerminalIcon;
   if (workEntry.requestKind === "file-read") return EyeIcon;
@@ -847,6 +860,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
       normalizeCompactToolLabel(heading).toLowerCase()
       ? null
       : rawPreview;
+  const rawCommand = workEntryRawCommand(workEntry);
   const displayText = preview ? `${heading} - ${preview}` : heading;
   const hasChangedFiles = (workEntry.changedFiles?.length ?? 0) > 0;
   const previewIsChangedFiles = hasChangedFiles && !workEntry.command && !workEntry.detail;
@@ -860,29 +874,71 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           <EntryIcon className="size-3" />
         </span>
         <div className="min-w-0 flex-1 overflow-hidden">
-          <Tooltip>
-            <TooltipTrigger
-              className="block min-w-0 w-full text-left"
-              title={displayText}
-              aria-label={displayText}
-            >
+          {rawCommand ? (
+            <div className="max-w-full">
               <p
                 className={cn(
                   "truncate text-[11px] leading-5",
                   workToneClass(workEntry.tone),
                   preview ? "text-muted-foreground/70" : "",
                 )}
+                title={displayText}
               >
                 <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
                   {heading}
                 </span>
-                {preview && <span className="text-muted-foreground/55"> - {preview}</span>}
+                {preview && (
+                  <Tooltip>
+                    <TooltipTrigger
+                      closeDelay={0}
+                      delay={75}
+                      render={
+                        <span className="max-w-full cursor-default text-muted-foreground/55 transition-colors hover:text-muted-foreground/75 focus-visible:text-muted-foreground/75">
+                          {" "}
+                          - {preview}
+                        </span>
+                      }
+                    />
+                    <TooltipPopup
+                      align="start"
+                      className="max-w-[min(56rem,calc(100vw-2rem))] px-0 py-0"
+                      side="top"
+                    >
+                      <div className="max-w-[min(56rem,calc(100vw-2rem))] overflow-x-auto px-1.5 py-1 font-mono text-[11px] leading-4 whitespace-nowrap">
+                        {rawCommand}
+                      </div>
+                    </TooltipPopup>
+                  </Tooltip>
+                )}
               </p>
-            </TooltipTrigger>
-            <TooltipPopup className="max-w-[min(720px,calc(100vw-2rem))]">
-              <p className="whitespace-pre-wrap wrap-break-word text-xs leading-5">{displayText}</p>
-            </TooltipPopup>
-          </Tooltip>
+            </div>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger
+                className="block min-w-0 w-full text-left"
+                title={displayText}
+                aria-label={displayText}
+              >
+                <p
+                  className={cn(
+                    "truncate text-[11px] leading-5",
+                    workToneClass(workEntry.tone),
+                    preview ? "text-muted-foreground/70" : "",
+                  )}
+                >
+                  <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
+                    {heading}
+                  </span>
+                  {preview && <span className="text-muted-foreground/55"> - {preview}</span>}
+                </p>
+              </TooltipTrigger>
+              <TooltipPopup className="max-w-[min(720px,calc(100vw-2rem))]">
+                <p className="whitespace-pre-wrap wrap-break-word text-xs leading-5">
+                  {displayText}
+                </p>
+              </TooltipPopup>
+            </Tooltip>
+          )}
         </div>
       </div>
       {hasChangedFiles && !previewIsChangedFiles && (

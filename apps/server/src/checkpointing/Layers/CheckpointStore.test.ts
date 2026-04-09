@@ -80,12 +80,8 @@ function initRepoWithCommit(
   });
 }
 
-function buildLargeText(lineCount = 2_200, payloadWidth = 512): string {
-  const payload = "x".repeat(payloadWidth);
-  return Array.from(
-    { length: lineCount },
-    (_, index) => `line ${String(index).padStart(5, "0")} ${payload}`,
-  )
+function buildLargeText(lineCount = 5_000): string {
+  return Array.from({ length: lineCount }, (_, index) => `line ${String(index).padStart(5, "0")}`)
     .join("\n")
     .concat("\n");
 }
@@ -121,7 +117,7 @@ it.layer(TestLayer)("CheckpointStoreLive", (it) => {
 
           expect(diff).toContain("diff --git");
           expect(diff).not.toContain("[truncated]");
-          expect(diff).toContain("+line 02199");
+          expect(diff).toContain("+line 04999");
         }),
       30_000,
     );

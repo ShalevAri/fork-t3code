@@ -994,6 +994,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       BUILT_IN_MODELS,
       PROVIDER,
       cursorSettings.customModels,
+      EMPTY_CAPABILITIES,
     );
 
     if (!cursorSettings.enabled) {
@@ -1091,6 +1092,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       ),
       PROVIDER,
       cursorSettings.customModels,
+      EMPTY_CAPABILITIES,
     );
     return buildServerProvider({
       provider: PROVIDER,
