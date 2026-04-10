@@ -30,14 +30,13 @@ import type {
 } from "../src/orchestration/Services/RuntimeReceiptBus.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
-const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
-const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asApprovalRequestId = (value: string): ApprovalRequestId =>
-  ApprovalRequestId.makeUnsafe(value);
+const asMessageId = (value: string): MessageId => MessageId.make(value);
+const asProjectId = (value: string): ProjectId => ProjectId.make(value);
+const asEventId = (value: string): EventId => EventId.make(value);
+const asApprovalRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make(value);
 
 const PROJECT_ID = asProjectId("project-1");
-const THREAD_ID = ThreadId.makeUnsafe("thread-1");
+const THREAD_ID = ThreadId.make("thread-1");
 const FIXTURE_TURN_ID = "fixture-turn";
 const APPROVAL_REQUEST_ID = asApprovalRequestId("req-approval-1");
 const LONG_LIVE_TEST_TIMEOUT_MS = 60_000;
@@ -118,7 +117,7 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
 
     yield* harness.engine.dispatch({
       type: "project.create",
-      commandId: CommandId.makeUnsafe("cmd-project-create"),
+      commandId: CommandId.make("cmd-project-create"),
       projectId: PROJECT_ID,
       title: "Integration Project",
       workspaceRoot: harness.workspaceDir,
@@ -131,7 +130,7 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
 
     yield* harness.engine.dispatch({
       type: "thread.create",
-      commandId: CommandId.makeUnsafe("cmd-thread-create"),
+      commandId: CommandId.make("cmd-thread-create"),
       threadId: THREAD_ID,
       projectId: PROJECT_ID,
       title: "Integration Thread",
@@ -156,7 +155,7 @@ const startTurn = (input: {
 }) =>
   input.harness.engine.dispatch({
     type: "thread.turn.start",
-    commandId: CommandId.makeUnsafe(input.commandId),
+    commandId: CommandId.make(input.commandId),
     threadId: THREAD_ID,
     message: {
       messageId: asMessageId(input.messageId),
@@ -267,7 +266,7 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
 
         yield* harness.engine.dispatch({
           type: "project.create",
-          commandId: CommandId.makeUnsafe("cmd-project-create-real-codex"),
+          commandId: CommandId.make("cmd-project-create-real-codex"),
           projectId: PROJECT_ID,
           title: "Integration Project",
           workspaceRoot: harness.workspaceDir,
@@ -280,7 +279,7 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
 
         yield* harness.engine.dispatch({
           type: "thread.create",
-          commandId: CommandId.makeUnsafe("cmd-thread-create-real-codex"),
+          commandId: CommandId.make("cmd-thread-create-real-codex"),
           threadId: THREAD_ID,
           projectId: PROJECT_ID,
           title: "Integration Thread",
@@ -297,7 +296,7 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
 
         yield* harness.engine.dispatch({
           type: "thread.turn.start",
-          commandId: CommandId.makeUnsafe("cmd-turn-start-real-codex-1"),
+          commandId: CommandId.make("cmd-turn-start-real-codex-1"),
           threadId: THREAD_ID,
           message: {
             messageId: asMessageId("msg-real-codex-1"),
@@ -324,7 +323,7 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
 
         yield* harness.engine.dispatch({
           type: "thread.turn.start",
-          commandId: CommandId.makeUnsafe("cmd-turn-start-real-codex-2"),
+          commandId: CommandId.make("cmd-turn-start-real-codex-2"),
           threadId: THREAD_ID,
           message: {
             messageId: asMessageId("msg-real-codex-2"),
@@ -589,7 +588,7 @@ live("tracks approval requests and resolves pending approvals on user response",
 
       yield* harness.engine.dispatch({
         type: "thread.approval.respond",
-        commandId: CommandId.makeUnsafe("cmd-approval-respond"),
+        commandId: CommandId.make("cmd-approval-respond"),
         threadId: THREAD_ID,
         requestId: APPROVAL_REQUEST_ID,
         decision: "accept",
@@ -828,7 +827,7 @@ live(
 
         yield* harness.engine.dispatch({
           type: "thread.checkpoint.revert",
-          commandId: CommandId.makeUnsafe("cmd-checkpoint-revert"),
+          commandId: CommandId.make("cmd-checkpoint-revert"),
           threadId: THREAD_ID,
           turnCount: 1,
           createdAt: nowIso(),
@@ -890,7 +889,7 @@ live(
 
         yield* harness.engine.dispatch({
           type: "thread.checkpoint.revert",
-          commandId: CommandId.makeUnsafe("cmd-checkpoint-revert-no-session"),
+          commandId: CommandId.make("cmd-checkpoint-revert-no-session"),
           threadId: THREAD_ID,
           turnCount: 0,
           createdAt: nowIso(),
@@ -1135,7 +1134,7 @@ live("forwards claudeAgent approval responses to the provider session", () =>
 
         yield* harness.engine.dispatch({
           type: "thread.approval.respond",
-          commandId: CommandId.makeUnsafe("cmd-claude-approval-respond"),
+          commandId: CommandId.make("cmd-claude-approval-respond"),
           threadId: THREAD_ID,
           requestId: APPROVAL_REQUEST_ID,
           decision: "accept",
@@ -1208,7 +1207,7 @@ live("forwards thread.turn.interrupt to claudeAgent provider sessions", () =>
 
         yield* harness.engine.dispatch({
           type: "thread.turn.interrupt",
-          commandId: CommandId.makeUnsafe("cmd-turn-interrupt-claude"),
+          commandId: CommandId.make("cmd-turn-interrupt-claude"),
           threadId: THREAD_ID,
           createdAt: nowIso(),
         });
@@ -1328,7 +1327,7 @@ live(
 
           yield* harness.engine.dispatch({
             type: "thread.checkpoint.revert",
-            commandId: CommandId.makeUnsafe("cmd-checkpoint-revert-claude"),
+            commandId: CommandId.make("cmd-checkpoint-revert-claude"),
             threadId: THREAD_ID,
             turnCount: 1,
             createdAt: nowIso(),

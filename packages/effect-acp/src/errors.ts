@@ -120,7 +120,7 @@ export class AcpRequestError extends Schema.TaggedErrorClass<AcpRequestError>()(
   }
 
   toProtocolError() {
-    return AcpSchema.Error.makeUnsafe({
+    return AcpSchema.Error.make({
       code: this.code,
       message: this.errorMessage,
       ...(this.data !== undefined ? { data: this.data } : {}),

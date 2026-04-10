@@ -41,6 +41,7 @@ import {
 } from "./lib/terminalContext";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { useShallow } from "zustand/react/shallow";
 import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
 import { getDefaultServerModel } from "./providerModels";
 import { UnifiedSettings } from "@t3tools/contracts/settings";
@@ -381,6 +382,11 @@ export interface EffectiveComposerModelState {
   modelOptions: ProviderModelOptions | null;
 }
 
+interface ComposerDraftModelState {
+  activeProvider: ProviderKind | null;
+  modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
+}
+
 function providerModelOptionsFromSelection(
   modelSelection: ModelSelection | null | undefined,
 ): ProviderModelOptions | null {
@@ -423,6 +429,10 @@ Object.freeze(EMPTY_IDS);
 Object.freeze(EMPTY_PERSISTED_ATTACHMENTS);
 const EMPTY_MODEL_SELECTION_BY_PROVIDER: Partial<Record<ProviderKind, ModelSelection>> =
   Object.freeze({});
+const EMPTY_COMPOSER_DRAFT_MODEL_STATE = Object.freeze<ComposerDraftModelState>({
+  activeProvider: null,
+  modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
+});
 
 const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   prompt: "",
@@ -947,7 +957,7 @@ function normalizeComposerTarget(
 ): ComposerThreadTarget | null {
   if (typeof target === "string") {
     const draftId = target.trim();
-    return draftId.length > 0 ? DraftId.makeUnsafe(draftId) : null;
+    return draftId.length > 0 ? DraftId.make(draftId) : null;
   }
   return target;
 }
@@ -1825,7 +1835,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
           if (!draftThread || isDraftThreadPromoting(draftThread)) {
             return null;
           }
-          return toProjectDraftSession(DraftId.makeUnsafe(draftId), draftThread);
+          return toProjectDraftSession(DraftId.make(draftId), draftThread);
         },
         getDraftThreadByProjectRef: (projectRef) => {
           return get().getDraftSessionByProjectRef(projectRef);
@@ -1839,7 +1849,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               draftThread.projectId === projectRef.projectId &&
               draftThread.environmentId === projectRef.environmentId
             ) {
-              return toProjectDraftSession(DraftId.makeUnsafe(draftId), draftThread);
+              return toProjectDraftSession(DraftId.make(draftId), draftThread);
             }
           }
           return null;
@@ -1858,7 +1868,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         },
         getDraftThread: (threadRef) => {
           if (typeof threadRef === "string") {
-            return get().getDraftSession(DraftId.makeUnsafe(threadRef));
+            return get().getDraftSession(DraftId.make(threadRef));
           }
           return get().getDraftSessionByRef(threadRef);
         },
@@ -1884,7 +1894,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               state.logicalProjectDraftThreadKeyByLogicalProjectKey[normalizedLogicalProjectKey];
             const nextDraftThread = createDraftThreadState(
               projectRef,
-              options?.threadId ?? existingThread?.threadId ?? ThreadId.makeUnsafe(draftId),
+              options?.threadId ?? existingThread?.threadId ?? ThreadId.make(draftId),
               normalizedLogicalProjectKey,
               existingThread,
               options,
@@ -2459,10 +2469,9 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
           if (!threadKey || !threadId) {
             return;
           }
-          get().addImages(
-            typeof threadRef === "string" ? DraftId.makeUnsafe(threadKey) : threadRef,
-            [image],
-          );
+          get().addImages(typeof threadRef === "string" ? DraftId.make(threadKey) : threadRef, [
+            image,
+          ]);
         },
         addImages: (threadRef, images) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
@@ -2587,7 +2596,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             return;
           }
           get().addTerminalContexts(
-            typeof threadRef === "string" ? DraftId.makeUnsafe(threadKey) : threadRef,
+            typeof threadRef === "string" ? DraftId.make(threadKey) : threadRef,
             [context],
           );
         },
@@ -2795,6 +2804,22 @@ export function useComposerThreadDraft(threadRef: ComposerThreadTarget): Compose
   });
 }
 
+export function useComposerDraftModelState(
+  threadRef: ComposerThreadTarget,
+): ComposerDraftModelState {
+  return useComposerDraftStore(
+    useShallow((state) => {
+      const draft = getComposerDraftState(state, threadRef);
+      return draft
+        ? {
+            activeProvider: draft.activeProvider,
+            modelSelectionByProvider: draft.modelSelectionByProvider,
+          }
+        : EMPTY_COMPOSER_DRAFT_MODEL_STATE;
+    }),
+  );
+}
+
 export function useEffectiveComposerModelState(input: {
   threadRef?: ComposerThreadTarget;
   draftId?: DraftId;
@@ -2804,7 +2829,7 @@ export function useEffectiveComposerModelState(input: {
   projectModelSelection: ModelSelection | null | undefined;
   settings: UnifiedSettings;
 }): EffectiveComposerModelState {
-  const draft = useComposerThreadDraft(input.threadRef ?? input.draftId ?? DraftId.makeUnsafe(""));
+  const draft = useComposerDraftModelState(input.threadRef ?? input.draftId ?? DraftId.make(""));
 
   return useMemo(
     () =>
@@ -2839,7 +2864,7 @@ export function markPromotedDraftThread(threadId: ThreadId): void {
   const draftThreadTargets: ComposerThreadTarget[] = [];
   for (const [draftId, draftThread] of Object.entries(store.draftThreadsByThreadKey)) {
     if (draftThread.threadId === threadId) {
-      draftThreadTargets.push(DraftId.makeUnsafe(draftId));
+      draftThreadTargets.push(DraftId.make(draftId));
     }
   }
   if (draftThreadTargets.length === 0) {
@@ -2857,7 +2882,7 @@ export function markPromotedDraftThreadByRef(threadRef: ScopedThreadRef): void {
       draftThread.environmentId === threadRef.environmentId &&
       draftThread.threadId === threadRef.threadId
     ) {
-      draftStore.markDraftThreadPromoting(DraftId.makeUnsafe(draftId), threadRef);
+      draftStore.markDraftThreadPromoting(DraftId.make(draftId), threadRef);
     }
   }
 }
@@ -2882,7 +2907,7 @@ export function finalizePromotedDraftThreadByRef(threadRef: ScopedThreadRef): vo
       draftThread.promotedTo.environmentId === threadRef.environmentId &&
       draftThread.promotedTo.threadId === threadRef.threadId
     ) {
-      draftStore.finalizePromotedDraftThread(DraftId.makeUnsafe(draftId));
+      draftStore.finalizePromotedDraftThread(DraftId.make(draftId));
     }
   }
 }
