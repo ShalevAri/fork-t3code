@@ -18,7 +18,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const mockAgentPath = path.join(__dirname, "../../../scripts/acp-mock-agent.ts");
 const bunExe = "bun";
 
-async function makeMockAgentWrapper(extraEnv?: Record<string, string>) {
+async function makeMockAgentWrapper(
+  extraEnv?: Record<string, string>,
+  options?: { initialDelaySeconds?: number },
+) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "cursor-acp-mock-"));
   const wrapperPath = path.join(dir, "fake-agent.sh");
   const envExports = Object.entries(extraEnv ?? {})
@@ -26,6 +29,7 @@ async function makeMockAgentWrapper(extraEnv?: Record<string, string>) {
     .join("\n");
   const script = `#!/bin/sh
 ${envExports}
+${options?.initialDelaySeconds ? `sleep ${JSON.stringify(String(options.initialDelaySeconds))}` : ""}
 exec ${JSON.stringify(bunExe)} ${JSON.stringify(mockAgentPath)} "$@"
 `;
   await writeFile(wrapperPath, script, "utf8");
@@ -211,6 +215,58 @@ cursorAdapterTestLayer("CursorAdapterLive", (it) => {
       const exitLog = yield* Effect.promise(() => waitForFileContent(exitLogPath));
       assert.include(exitLog, "SIGTERM");
     }),
+  );
+
+  it.effect(
+    "serializes concurrent startSession calls for the same thread and closes the replaced ACP session",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* CursorAdapter;
+        const settings = yield* ServerSettingsService;
+        const threadId = ThreadId.make("cursor-concurrent-start-session");
+        const tempDir = yield* Effect.promise(() =>
+          mkdtemp(path.join(os.tmpdir(), "cursor-adapter-concurrent-exit-log-")),
+        );
+        const exitLogPath = path.join(tempDir, "exit.log");
+
+        const wrapperPath = yield* Effect.promise(() =>
+          makeMockAgentWrapper(
+            {
+              T3_ACP_EXIT_LOG_PATH: exitLogPath,
+            },
+            { initialDelaySeconds: 0.2 },
+          ),
+        );
+        yield* settings.updateSettings({ providers: { cursor: { binaryPath: wrapperPath } } });
+
+        const [firstSession, secondSession] = yield* Effect.all(
+          [
+            adapter.startSession({
+              threadId,
+              provider: "cursor",
+              cwd: process.cwd(),
+              runtimeMode: "full-access",
+              modelSelection: { provider: "cursor", model: "default" },
+            }),
+            adapter.startSession({
+              threadId,
+              provider: "cursor",
+              cwd: process.cwd(),
+              runtimeMode: "full-access",
+              modelSelection: { provider: "cursor", model: "default" },
+            }),
+          ],
+          { concurrency: "unbounded" },
+        );
+
+        assert.equal(firstSession.threadId, threadId);
+        assert.equal(secondSession.threadId, threadId);
+
+        yield* adapter.stopSession(threadId);
+
+        const exitLog = yield* Effect.promise(() => waitForFileContent(exitLogPath));
+        assert.equal(exitLog.match(/SIGTERM/g)?.length ?? 0, 2);
+      }),
   );
 
   it.effect("rejects startSession when provider mismatches", () =>

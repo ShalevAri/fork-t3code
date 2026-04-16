@@ -337,8 +337,6 @@ describe("AcpSessionRuntime", () => {
             message.params?.value === "composer-2[fast=false]",
         ),
       ).toBe(false);
-
-      rmSync(tempDir, { recursive: true, force: true });
     }).pipe(
       Effect.provide(
         AcpSessionRuntime.layer({
@@ -356,6 +354,7 @@ describe("AcpSessionRuntime", () => {
       ),
       Effect.scoped,
       Effect.provide(NodeServices.layer),
+      Effect.ensuring(Effect.sync(() => rmSync(tempDir, { recursive: true, force: true }))),
     );
   });
 });
